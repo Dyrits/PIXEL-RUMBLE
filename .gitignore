@@ -1,0 +1,5 @@
+.cache-data/
+.agents/handoffs/
+.DS_Store
+.zcodeignore
+.zcode/

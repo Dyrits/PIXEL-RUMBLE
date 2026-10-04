@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pixel Rumble</title>
+  <meta name="description" content="Your all-time video game ranking, one duel at a time.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='6' width='5' height='5' fill='%23ff5a4a'/%3E%3Crect x='9' y='6' width='5' height='5' fill='%234ea8ff'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,300..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="frame">
+    <header class="top">
+      <a class="logo" href="#/duel">
+        <svg class="logo-mark" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="1" y="5" width="6" height="6" fill="#ff5a4a"></rect>
+          <rect x="9" y="5" width="6" height="6" fill="#4ea8ff"></rect>
+        </svg>
+        <span class="logo-word">Pixel&nbsp;Rumble</span>
+      </a>
+      <nav id="nav" class="nav" aria-label="Main">
+        <button type="button" data-view="duel">Duel</button>
+        <button type="button" data-view="rankings">Rankings</button>
+      </nav>
+      <p class="count"><span class="count-num" id="duel-count">0</span> duels</p>
+    </header>
+
+    <main id="stage" aria-live="off"></main>
+
+    <footer class="foot">
+      <p>Ratings start at 1500 and move with every duel. Everything stays in your browser.</p>
+      <button type="button" class="btn ghost" id="reset-btn">Reset ladder</button>
+    </footer>
+  </div>
+  <p id="live" class="sr-only" aria-live="polite"></p>
+  <noscript><p style="text-align:center;padding:2rem">Pixel Rumble needs JavaScript to run its duels.</p></noscript>
+  <script src="games.js"></script>
+  <script src="engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
