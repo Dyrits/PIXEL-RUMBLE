@@ -127,6 +127,30 @@ stats, migration — is DOM-free and tested with plain Node:
 node engine.test.js
 ```
 
+## Multi-user server (in progress)
+
+[`server/`](server/) is a Cloudflare Worker that serves this app as static
+assets (the repo root; see `.assetsignore` for what stays private) and will
+host the multi-user API: BetterAuth accounts, per-user ladder sync, and a
+global ranking computed by the same `engine.js`. Local dev needs no
+Cloudflare account — D1 runs in the local simulation:
+
+```sh
+cd server
+npm install
+npm run dev            # http://localhost:8790 — app + /api/health
+npm run typecheck
+```
+
+First deploy: `npx wrangler login`, `npx wrangler d1 create pixel-rumble`
+(paste the id into `server/wrangler.jsonc`), apply migrations remotely
+(`npx wrangler d1 migrations apply pixel-rumble --remote`), set the auth
+secret (`npx wrangler secret put BETTER_AUTH_SECRET` — locally it lives in
+`server/.dev.vars`, which is git-ignored), then `npm run deploy`.
+
+Accounts (BetterAuth, email + password) already work locally and on deploy:
+"Sign in" in the header, session cookie, sign-out on the header chip.
+
 ## Layout
 
 | File | What it is |

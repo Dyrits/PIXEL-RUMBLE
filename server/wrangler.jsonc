@@ -1,0 +1,23 @@
+{
+  // Pixel Rumble API + static hosting on Cloudflare Workers.
+  // The static app is the repository root itself (see /.assetsignore for
+  // exclusions); only requests that match no asset reach the Worker.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pixel-rumble",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": ".."
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pixel-rumble",
+      // Placeholder: local `wrangler dev` works against the local D1
+      // simulation. Before the first `npm run deploy`, create the database
+      // (`npx wrangler d1 create pixel-rumble`) and paste its id here.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

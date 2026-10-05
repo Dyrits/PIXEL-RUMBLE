@@ -1091,8 +1091,6 @@
     const topBlock = el("div", "chart-block");
     topBlock.appendChild(el("h3", null, "Top 10 by rating"));
     const bar = el("canvas", "chart-canvas");
-    bar.width = 900;
-    bar.height = 360;
     topBlock.appendChild(bar);
     stage.appendChild(topBlock);
 
@@ -1100,8 +1098,6 @@
     const distBlock = el("div", "chart-block");
     distBlock.appendChild(el("h3", null, "Rating spread"));
     const hist = el("canvas", "chart-canvas");
-    hist.width = 900;
-    hist.height = 260;
     distBlock.appendChild(hist);
     stage.appendChild(distBlock);
 
@@ -1157,11 +1153,33 @@
     }
   }
 
+  // Size a chart canvas to its on-screen box at device resolution, then
+  // hand back a context that draws in a 900-unit-wide space — text stays
+  // sharp and proportioned at any container width instead of stretching
+  // the fixed 900px buffer.
+  function chartCtx(cv, unitHeight) {
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = cv.clientWidth || 600;
+    const cssH = Math.max(120, Math.round(cssW * (unitHeight / 900)));
+    cv.width = Math.round(cssW * dpr);
+    cv.height = Math.round(cssH * dpr);
+    cv.style.height = cssH + "px";
+    const ctx = cv.getContext("2d");
+    ctx.setTransform(cv.width / 900, 0, 0, cv.width / 900, 0, 0);
+    return { ctx, H: unitHeight };
+  }
+
+  function fitLabel(ctx, text, max) {
+    if (ctx.measureText(text).width <= max) return text;
+    let t = text;
+    while (t.length > 1 && ctx.measureText(t + "\u2026").width > max) t = t.slice(0, -1);
+    return t + "\u2026";
+  }
+
   function drawTop10(cv, ids) {
     const pr = P();
-    const ctx = cv.getContext("2d");
-    const W = cv.width;
-    const H = cv.height;
+    const { ctx, H } = chartCtx(cv, 360);
+    const W = 900;
     const n = ids.length;
     const rowH = H / n;
     const values = ids.map((id) => pr.recordOf(id).r);
@@ -1169,33 +1187,36 @@
     const min = Math.min(...values);
     const span = Math.max(max - min, 60);
     ctx.clearRect(0, 0, W, H);
+    ctx.font = "600 17px 'Bricolage Grotesque', system-ui, sans-serif";
+    // Gutter sized to the actual labels (capped), not a fixed guess: short
+    // rosters give the bars room, long titles ellipsize by pixels.
+    let labelW = 0;
+    for (const id of ids) labelW = Math.max(labelW, ctx.measureText(pr.gameById(id).title).width);
+    const barX = Math.min(labelW, 300) + 16;
+    const barW = W - barX - 56;
     ids.forEach((id, i) => {
       const g = pr.gameById(id);
       const r = pr.recordOf(id).r;
       const y = i * rowH;
-      const barX = 268;
-      const barW = W - barX - 96;
       const w = Math.max(6, ((r - (min - 20)) / (span + 20)) * barW);
       const hue = pr.hueOf(g);
       ctx.fillStyle = `hsl(${hue} 85% 66%)`;
       ctx.fillRect(barX, y + rowH * 0.22, w, rowH * 0.56);
       ctx.fillStyle = "#f4f1e6";
-      ctx.font = "600 17px 'Bricolage Grotesque', system-ui, sans-serif";
       ctx.textAlign = "right";
-      const label = g.title.length > 32 ? g.title.slice(0, 31) + "\u2026" : g.title;
-      ctx.fillText(label, barX - 14, y + rowH * 0.62);
+      ctx.fillText(fitLabel(ctx, g.title, 300), barX - 14, y + rowH * 0.62);
       ctx.fillStyle = "#ffc53d";
       ctx.font = "14px Silkscreen, monospace";
       ctx.textAlign = "left";
       ctx.fillText(String(r), barX + w + 10, y + rowH * 0.62);
+      ctx.font = "600 17px 'Bricolage Grotesque', system-ui, sans-serif";
     });
   }
 
   function drawHist(cv, values) {
     const h = E().histogram(values, 25);
-    const ctx = cv.getContext("2d");
-    const W = cv.width;
-    const H = cv.height;
+    const { ctx, H } = chartCtx(cv, 260);
+    const W = 900;
     ctx.clearRect(0, 0, W, H);
     if (!h.bins.length) return;
     const padX = 30;

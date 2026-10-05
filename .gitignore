@@ -3,3 +3,7 @@
 .DS_Store
 .zcodeignore
 .zcode/
+.claude/
+node_modules/
+server/.wrangler/
+server/.dev.vars

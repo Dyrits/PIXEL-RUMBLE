@@ -25,3 +25,7 @@ Call the Skill tool with "document" before creating or updating project document
 ### Reusable knowledge
 
 Before writing a script or multi-step pipeline, read `.agents/scripts/INDEX.md` when it exists and reuse or extend a match. Call the Skill tool with "memorize" the moment something is rebuilt a second time or the user corrects a behavior.
+
+### Server references
+
+- Hono framework docs for `server/` (the Cloudflare Worker API): https://hono.dev/llms-full.txt — LLM-friendly full docs; fetch when doing server work rather than relying on recall.

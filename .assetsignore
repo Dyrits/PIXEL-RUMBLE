@@ -1,0 +1,18 @@
+# Excluded from the Worker's static assets (the repo root is the site).
+# The app itself — index.html, *.js, style.css, covers/, data/, v1/ — serves.
+.git
+server
+node_modules
+.cache-data
+.agents
+.zcode
+.zcodeignore
+documentation
+AGENTS.md
+CHANGELOG.md
+README.md
+.gitignore
+.assetsignore
+engine.test.js
+fetch-data.js
+fetch-covers.js
