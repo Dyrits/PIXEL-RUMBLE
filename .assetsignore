@@ -16,3 +16,8 @@ README.md
 engine.test.js
 fetch-data.js
 fetch-covers.js
+# surfaced by milestone review: internals that would otherwise deploy as
+# public assets
+skills-lock.json
+.claude
+.DS_Store

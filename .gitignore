@@ -7,3 +7,6 @@
 node_modules/
 server/.wrangler/
 server/.dev.vars
+
+# Node dev-harness build output
+server/.tmp/

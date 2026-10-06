@@ -619,6 +619,9 @@ kbd {
 
 .rank-head h2 { font-size: 22px; font-weight: 700; margin: 0; }
 
+/* Global tab: the player/duel tally under the heading. */
+.global-sub { flex-basis: 100%; margin: 2px 0 0; }
+
 .rank-tools { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .empty-note {
@@ -754,7 +757,9 @@ kbd {
   display: grid;
   place-items: center;
   padding: 20px;
-  z-index: 40;
+  /* Above the onboarding gate (60) so sign-in works on a fresh browser;
+     the toast stays above dialogs. */
+  z-index: 80;
   animation: fade 160ms ease both;
 }
 
@@ -1141,7 +1146,7 @@ kbd {
   opacity: 0;
   pointer-events: none;
   transition: opacity 180ms ease, transform 180ms ease;
-  z-index: 70;
+  z-index: 90;
   max-width: min(90vw, 480px);
   text-align: center;
 }

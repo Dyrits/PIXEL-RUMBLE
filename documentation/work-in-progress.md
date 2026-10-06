@@ -1,26 +1,25 @@
 # Work in progress
 
-## Design pass + feedback fixes delivered (CHG-0009, CHG-0010) — awaiting acceptance
+## Multi-user milestone — batches 1–4 delivered (CHG-0006 agreement, baseline revision 55b7ef1); batch 5 (deploy) next
 
-Design pass (CHG-0009): auth dialog rebuilt (fitted panel, × close, one full-width primary, text-link mode switch), ≤560px header as a named-row grid, stats charts at exact device resolution with pixel-ellipsized labels, stats tile dividers via grid gap, `?v=` asset tags in `index.html`. User feedback round (CHG-0010): stale sign-up mode across dialog opens made "Sign in" demand a name (fixed via `setMode()` reset in `openModal`); phones stacked the duel pair full-size so the second card sat below the fold (≤610px now side-by-side compact — both cards + VS + haven't-played row fit 390×844); sign-in dialog compacts on phones. Asset tags now `?v=2026-10-06b` — bump on every asset edit. **Note:** a reboot wiped `/tmp/pr-d1-state`, taking the earlier local accounts; test user re-created: dylan@test.dev / pixel-rumble-1. Re-run `npm run db:local` in `server/` if tables vanish again.
+**Delivered:** worker skeleton + accounts (CHG-0007/0008), design pass + fixes (CHG-0009/0010), ladder sync + global ranking (CHG-0011 — includes the milestone review, both axes verified, and an architecture audit). `node engine.test.js` 84/84; server typecheck clean; browser e2e 12/12 against the Node harness.
 
-## Multi-user milestone (CHG-0006 agreement, baseline revision 55b7ef1)
+**Next: batch 5 — deploy.** Blocked on the user's Cloudflare account: `npx wrangler login` (interactive OAuth), then `npx wrangler d1 create pixel-rumble` (paste id into `server/wrangler.jsonc`), `npx wrangler d1 migrations apply pixel-rumble --remote`, `npx wrangler secret put BETTER_AUTH_SECRET`, `npm run deploy` in `server/`, smoke test `/api/health` + sign-up + sync + global on the deployed URL. Deploy-time verification of Workers-assets semantics is the open SPEC-2 note from the milestone review.
 
-**Agreed architecture:** Hono API on Cloudflare Workers + D1 in front of the existing SPA (served as Worker assets, offline-first kept); BetterAuth with D1 adapter for accounts; global ranking = shared Elo computed server-side by the existing DOM-free `engine.js`; personal rankings = per-user ladders synced through the API. Effect declined (framework weight > domain); Marko declined for now (rewrite; may consume the same API later as a front-end project — vetted path: marko-js/examples vite-cloudflare-marko-5).
+**Open review notes (documented in CHG-0011):** Drizzle-scoped-to-auth boundary is comment-enforced only (SPEC-3); design-pass appearance acceptance is with the user (SPEC-4).
 
-**Batch 1 delivered (CHG-0007):** worker skeleton — app served as assets with `.assetsignore` guarding internals, `GET /api/health` proving D1, typecheck clean. Verified against `wrangler dev` locally; `server` dev server may still be running on port 8790.
+**Architecture audit** (2026-10-06): `documentation/architecture-audit/architecture-audit-20261006-0729.html` — 5 candidates; top pick: one battle-constructor in engine.js shared by live duels, undo, merge, and server replay. Refinement of any candidate awaits the user's pick.
 
-**Batch 2 delivered (CHG-0008):** BetterAuth accounts — Drizzle-on-D1 adapter (scoped to auth), CLI-generated schema + wrangler-applied migrations, `/api/auth/*` + `/api/me`, zero-dep `auth.js` modal/header UI in the SPA. Verified by curl e2e and browser e2e (sign-up → chip → reload persistence → sign-out). Dev-server reload loop fixed via `--persist-to` out-of-tree state (baked into `npm run dev`). Local dev state: `/tmp/pr-d1-state` (wiped on reboot — re-run `npm run db:local` if tables vanish). Test users exist in local D1: dylan@test.dev, tester@test.dev.
+## Awaiting acceptance: user review pending
 
-**Next batches (proposed order):**
-1. Ladder sync: push battles/ladder state per user, pull on sign-in; merge with localStorage.
-2. Global ranking: server replays all users' battles through `engine.js`, cached/materialized; "Global" view in the SPA.
-3. Deploy: `wrangler login`, `wrangler d1 create pixel-rumble` (paste id into wrangler.jsonc), remote migrations + secret, `npm run deploy`, smoke test.
+- CHG-0002 – CHG-0005 (duel-screen changes; freshest verification origin was http://localhost:8649, now stale — re-verify against a fresh server).
+- CHG-0009 / CHG-0010 (design pass + sign-in/phone fixes).
+- CHG-0011 (sync + Global tab) — browser-verifiable against `npm run dev:node` (http://localhost:8791): sign in on two browsers/profiles, duel on each, watch merge + Global.
+- Deferred in scope (unchanged): haven't-played in tournament/placement modes; visible unplayed filter; swipe-down-to-skip; Global-tab sorting/filters; per-user weighting caps on the global ladder (deferred until spam is observed).
 
-**Open questions:** none blocking batch 2. Per-user weighting caps on the global ladder deferred until spam is observed.
+## Dev environment
 
-## Awaiting acceptance: duel-screen changes (CHG-0002 – CHG-0005)
-
-All batches implemented, verified, and delivered; user review pending. Freshest verification origin: http://localhost:8649.
-
-**Deferred in scope:** haven't-played in tournament/placement modes; visible unplayed filter; swipe-down-to-skip.
+- **`wrangler dev` cannot start on this machine** (spawn EBADF in its esbuild/workerd bootstrap; every variant tried — see CHG-0011 Validation). Use `cd server && npm run dev:node` (port 8791) — bundles with esbuild-async + wrangler conditions, D1 over `node:sqlite` at `/tmp/pr-node-d1` (delete to reset; migrations auto-apply), statics honour `.assetsignore`. Wrangler still works for bundling (`deploy --dry-run`), D1 migrations, and typecheck-adjacent commands; retry `wrangler dev` after any OS/Node change.
+- BetterAuth POST endpoints require an `Origin` header matching `BETTER_AUTH_URL` (CSRF) — curl e2e must send `-H "Origin: http://localhost:8791"`.
+- Asset edits require bumping `?v=` in `index.html` (now `2026-10-06e`); verify with a cache-busted document URL (`?b=<n>`), never an already-open tab.
+- `server/.dev.vars` (local BetterAuth secret) is git-ignored; verify it never gets committed.

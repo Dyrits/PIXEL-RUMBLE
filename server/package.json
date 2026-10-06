@@ -6,7 +6,8 @@
     "db:local": "wrangler d1 migrations apply pixel-rumble --local --persist-to /tmp/pr-d1-state",
     "dev": "wrangler dev --port 8790 --persist-to /tmp/pr-d1-state",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev:node": "node scripts/dev-node.mjs"
   },
   "dependencies": {
     "better-auth": "^1.7.7",

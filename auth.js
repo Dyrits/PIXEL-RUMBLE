@@ -1,10 +1,12 @@
-// Pixel Rumble account UI (multi-user batch 2). Talks to BetterAuth's REST
-// endpoints with plain fetch — the SPA stays zero-dependency. Self-contained:
-// injects its header button and modal, exposes window.PRAuth.
+// Pixel Rumble account UI. Talks to BetterAuth's REST endpoints with plain
+// fetch — the SPA stays zero-dependency. Self-contained: injects its header
+// button and modal, exposes window.PRAuth (plus pr:signedin/pr:signedout
+// document events for the sync client).
 (function () {
   "use strict";
 
   const $ = (sel) => document.querySelector(sel);
+  let toastTimer = null;
 
   async function api(path, opts) {
     const res = await fetch(path, {
@@ -45,6 +47,7 @@
           await api("/api/auth/sign-out", { method: "POST", body: {} });
           user = null;
           renderHeader();
+          document.dispatchEvent(new CustomEvent("pr:signedout"));
           toast("Signed out. Your ladder stays on this device.");
         } catch (err) {
           toast(err.message);
@@ -64,7 +67,8 @@
     if (!node) return;
     node.textContent = msg;
     node.classList.add("show");
-    setTimeout(() => node.classList.remove("show"), 2600);
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => node.classList.remove("show"), 2600);
   }
 
   let mode = "signin";
@@ -162,6 +166,7 @@
         }
         closeModal();
         renderHeader();
+        document.dispatchEvent(new CustomEvent("pr:signedin"));
       } catch (err) {
         errEl.textContent = err.message;
       }
@@ -187,6 +192,8 @@
     renderHeader();
   }
 
-  window.PRAuth = { boot, refresh: boot, get user() { return user; } };
-  boot();
+  // `ready` resolves once the initial session check is done, so sync.js
+  // (loaded after this file) doesn't race the /api/me roundtrip.
+  const ready = boot();
+  window.PRAuth = { boot, refresh: boot, ready, get user() { return user; } };
 })();

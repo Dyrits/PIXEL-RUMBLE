@@ -1,12 +1,13 @@
 // Pixel Rumble API. Thin by design: BetterAuth at /api/auth/*, session info
-// at /api/me, then (next batches) ladder sync and the global ranking
-// computed by the client-identical engine.js.
+// at /api/me, per-user ladder sync at /api/sync, and the consensus ranking
+// at /api/global computed by the client-identical engine.js.
 import { Hono } from "hono";
 import { makeAuth, type Env } from "./auth";
+import { registerGlobalRoutes, registerSyncRoutes } from "./sync";
 
-type Env2 = { Bindings: Env };
+type AppEnv = { Bindings: Env };
 
-const app = new Hono<Env2>();
+const app = new Hono<AppEnv>();
 
 // One auth instance per D1 binding (stable within an isolate).
 let authFor: D1Database | null = null;
@@ -35,5 +36,8 @@ app.get("/api/me", async (c) => {
   const session = await authOf(c.env).api.getSession({ headers: c.req.raw.headers });
   return c.json({ user: session ? { id: session.user.id, name: session.user.name, email: session.user.email } : null });
 });
+
+registerSyncRoutes(app, authOf);
+registerGlobalRoutes(app);
 
 export default app;

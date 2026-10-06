@@ -183,6 +183,109 @@ check("tier C mid-low", E.tierForIndex(60, 100) === "C");
   check("migrate rejects junk", E.migrateV1(null) === null && E.migrateV1({}) === null);
 }
 
+// --- replay & merge (multi-device ladder sync) ---
+{
+  const r = E.replayBattles([]);
+  check("replay empty", Object.keys(r.recs).length === 0 && r.battles.length === 0);
+}
+{
+  // Two paths to the same ladder: live duels on records vs replay from the
+  // battle log. They must agree exactly — sync merges rely on it.
+  const battles = [];
+  const live = {};
+  const rec = (id) => live[id] || (live[id] = E.freshRecord());
+  const duel = (a, b, winner, ts) => {
+    battles.push({ a, b, winner, mode: "quick", ts });
+    E.duel(a, rec(a), b, rec(b), winner);
+  };
+  duel("a", "b", "a", 1000);
+  duel("a", "c", "a", 2000);
+  duel("c", "b", "b", 3000);
+  const { recs, battles: out } = E.replayBattles(battles);
+  check("replay matches live records", ["a", "b", "c"].every((id) =>
+    recs[id].r === live[id].r && recs[id].w === live[id].w && recs[id].l === live[id].l &&
+    JSON.stringify(recs[id].hist) === JSON.stringify(live[id].hist)));
+  check("replay regenerates pre snapshots", out[1].preA.r === 1520 && out[2].preB.r === 1480);
+  check("replay keeps battle order", out.map((b) => b.ts).join(",") === "1000,2000,3000");
+}
+{
+  const { recs } = E.replayBattles([battle("a", "b", "a", 1000)]);
+  check("replay single even duel is +20/-20", recs.a.r === 1520 && recs.b.r === 1480 && recs.a.w === 1 && recs.b.l === 1);
+}
+{
+  const r = E.replayBattles([
+    { a: "a", b: "b", winner: "a", ts: 5 },
+    { a: "x", b: "b", winner: "z", ts: 4 },      // winner is not a participant
+    { b: "b", winner: "b", ts: 3 },              // missing a
+    null,
+  ]);
+  check("replay drops invalid battles", r.battles.length === 1 && r.battles[0].a === "a");
+  check("replay skips records for invalid battles", r.recs.x === undefined && r.recs.a !== undefined);
+}
+{
+  const r = E.replayBattles([
+    { a: "a", b: "b", winner: "b", ts: 200 },
+    { a: "a", b: "b", winner: "a", ts: 100 },
+  ]);
+  check("replay sorts by timestamp", r.battles[0].ts === 100 && r.battles[0].winner === "a");
+}
+function battle(a, b, winner, ts) {
+  return { a, b, winner, mode: "quick", ts, preA: null, preB: null };
+}
+function storeWith(ladder, extras) {
+  return {
+    version: 2, active: ladder.id, seen: true, prefs: { muted: false },
+    ladders: { [ladder.id]: ladder },
+    ...extras,
+  };
+}
+{
+  const local = storeWith({ id: "l1", name: "Mine", recs: {}, battles: [battle("a", "b", "a", 100)], tournaments: [], currentTournament: null, unplayed: { z: 1 } });
+  const remote = storeWith({ id: "l2", name: "Theirs", recs: {}, battles: [battle("c", "d", "c", 200)], tournaments: [], currentTournament: null, unplayed: { y: 1 } });
+  const m = E.mergeStores(local, remote);
+  check("merge unions ladders", m && m.ladders.l1 && m.ladders.l2);
+  check("merge keeps local active", m.active === "l1");
+  check("merge unions unplayed", m.ladders.l1.unplayed.z === 1 && m.ladders.l2.unplayed.y === 1);
+  check("onboarding done if either side saw the app", (() => {
+    const fresh = { version: 2, active: null, ladders: {}, prefs: {}, seen: false };
+    return E.mergeStores(fresh, remote).seen === true && E.mergeStores(fresh, fresh).seen === false;
+  })());
+}
+{
+  const shared = battle("a", "b", "a", 100);
+  const local = storeWith({ id: "l1", name: "Local name", recs: {}, battles: [shared, battle("a", "c", "a", 300)], tournaments: [{ size: 8, champion: "a", when: 900 }], currentTournament: null });
+  const remote = storeWith({ id: "l1", name: "Remote name", recs: { junk: 1 }, battles: [shared, battle("b", "d", "b", 200)], tournaments: [{ size: 8, champion: "a", when: 900 }], currentTournament: null });
+  const m = E.mergeStores(local, remote);
+  check("merge dedupes identical battles", m.ladders.l1.battles.length === 3);
+  check("merge orders by ts", m.ladders.l1.battles.map((b) => b.ts).join(",") === "100,200,300");
+  check("merge replays records", m.ladders.l1.recs.a && m.ladders.l1.recs.a.w === 2 && m.ladders.l1.recs.junk === undefined);
+  check("merge name from richer side", m.ladders.l1.name === "Local name");
+  check("merge dedupes tournaments by when", m.ladders.l1.tournaments.length === 1);
+}
+{
+  const local = storeWith({ id: "l1", name: "A", recs: {}, battles: [], tournaments: [], currentTournament: { size: 8, seeds: {}, bracket: null } });
+  const remote = storeWith({ id: "l1", name: "B", recs: {}, battles: [battle("a", "b", "a", 1)], tournaments: [], currentTournament: null });
+  const m = E.mergeStores(local, remote);
+  check("merge name flips to remote when it has the duels", m.ladders.l1.name === "B");
+  check("merge keeps an in-progress local tournament", m.ladders.l1.currentTournament && m.ladders.l1.currentTournament.size === 8);
+  check("merge falls back to a surviving active when local one is corrupt", (() => {
+    const s = storeWith({ id: "l9", name: "kept", recs: {}, battles: [], tournaments: [], currentTournament: null });
+    s.active = "l-nope";
+    return E.mergeStores(s, remote).active === "l1";
+  })());
+  check("merge lands on the duelled ladder from an empty active", (() => {
+    const fresh = storeWith({ id: "lnew", name: "Fresh", recs: {}, battles: [], tournaments: [], currentTournament: null });
+    return E.mergeStores(fresh, remote).active === "l1";
+  })());
+}
+{
+  const local = storeWith({ id: "l1", name: "A", recs: {}, battles: [battle("a", "b", "a", 100)], tournaments: [], currentTournament: null });
+  const snapshot = JSON.stringify(local);
+  E.mergeStores(local, storeWith({ id: "l1", name: "B", recs: {}, battles: [battle("c", "d", "c", 200)], tournaments: [], currentTournament: null }));
+  check("merge does not mutate inputs", JSON.stringify(local) === snapshot);
+  check("merge rejects junk remote", E.mergeStores(local, null) === null && E.mergeStores(local, { version: 1, ladders: {} }) === null);
+}
+
 // --- roster sanity (browser shim) ---
 {
   global.window = {};

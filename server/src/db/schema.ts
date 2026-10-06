@@ -105,3 +105,19 @@ export const accountRelations = relations(account, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+// One synced store document per user: the whole localStorage store JSON plus
+// a monotonic revision for optimistic concurrency. Read and written with raw
+// D1 in src/sync.ts; it lives here so drizzle-kit keeps the full D1 schema
+// as its single source of truth.
+export const ladderState = sqliteTable("ladder_state", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  rev: integer("rev").notNull(),
+  store: text("store").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});

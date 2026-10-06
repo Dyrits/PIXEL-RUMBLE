@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Rumble — architecture audit 2026-10-06</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({ startOnLoad: true, theme: 'dark', themeVariables: { darkMode: true, background: '#0b0d1a' } });
+</script>
+<style>
+  body { background:#0b0d1a; }
+  .badge-strong { background:#16a34a; }
+  .badge-worth { background:#d97706; }
+  .badge-spec { background:#6b7280; }
+</style>
+</head>
+<body class="text-slate-200 font-sans">
+<main class="max-w-5xl mx-auto p-6 space-y-8">
+
+  <header class="space-y-2">
+    <h1 class="text-3xl font-bold text-amber-300" style="font-family:Silkscreen,monospace">PIXEL RUMBLE — architecture audit</h1>
+    <p class="text-sm text-slate-400">2026-10-06 · scope weighted toward the multi-user milestone (accounts, ladder sync, global ranking) · vocabulary: module / interface / depth / seam / adapter / leverage / locality (design-modules), domain terms from the codebase (ladder, battle, duel, store, tier).</p>
+    <p class="text-sm text-slate-400">No GLOSSARY.md or ADRs exist yet — candidates below cannot contradict any recorded decision.</p>
+  </header>
+
+  <!-- Candidate 1 -->
+  <section class="bg-slate-900 rounded-xl p-6 border border-slate-700 space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-xl font-bold">1 · Give “a duel happened” one home</h2>
+      <span class="badge-strong text-white text-xs font-bold px-3 py-1 rounded-full">Strong</span>
+    </div>
+    <p class="text-sm"><b>Files:</b> views.js (quickPick, placementPick, setDeltaNodes) · app.js (applyDuel, undoLast) · engine.js (duel, replayBattles) · sync.js (push)</p>
+    <p class="text-sm"><b>Problem:</b> One quick duel spans five files: views orchestrate locking/sound/DOM classes, app.js <code>applyDuel</code> mutates the ladder, engine <code>duel</code> moves ratings, <code>save()</code> persists, sync pushes. Worse, app.js:140 re-implements the <code>preA/preB</code> undo snapshot that <code>replayBattles</code> also builds (engine.js:514) — if they diverge, undo breaks while every test stays green. The concept has no module; locality is zero.</p>
+    <p class="text-sm"><b>Solution:</b> One battle-constructor in engine.js (build the battle record with its snapshots, apply it to records) that both the live path and the replay path call; app.js shrinks to “ask the engine, persist, notify.”</p>
+    <p class="text-sm"><b>Benefits:</b> locality — the duel rules (K-factor, snapshots, hist cap) sit in one place; leverage — the same constructor serves live duels, undo, sync merge, and the server’s global replay; tests — engine.test.js then covers the exact code the browser runs.</p>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-slate-950 rounded-lg p-3"><p class="text-xs text-slate-400 mb-2">Before — snapshot logic in two places</p>
+        <pre class="mermaid text-xs">flowchart LR
+  V[views quickPick] --> A[app applyDuel\nsnapshot v1] --> E1[engine.duel]
+  R[engine replayBattles\nsnapshot v2] --> M[mergeStores]
+  A -.diverges.-. R</pre>
+      </div>
+      <div class="bg-slate-950 rounded-lg p-3"><p class="text-xs text-slate-400 mb-2">After — one constructor, many callers</p>
+        <pre class="mermaid text-xs">flowchart TD
+  C[engine.applyBattle\nrecords + snapshots] --> A[app applyDuel]
+  C --> R[replayBattles]
+  C --> G[server global replay]
+  A --> S[sync push]</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Candidate 2 -->
+  <section class="bg-slate-900 rounded-xl p-6 border border-slate-700 space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-xl font-bold">2 · Split the PR facade into selectors and commands</h2>
+      <span class="badge-strong text-white text-xs font-bold px-3 py-1 rounded-full">Strong</span>
+    </div>
+    <p class="text-sm"><b>Files:</b> app.js:882-948 (window.PR, ~60 members) · views.js (consumes 41, writes through 6)</p>
+    <p class="text-sm"><b>Problem:</b> PR is a shared-memory hole, not an interface: views write app state directly (<code>pr.duelMode = key</code>, <code>pr.quick.locked = true</code>, <code>filters.era = …</code>), and app.js re-enters views by synthetically clicking rendered covers (<code>PRViews.__placePick</code>) — the DOM is a control-flow seam. The deletion test fails: deleting PR scatters the same coupling rather than concentrating it.</p>
+    <p class="text-sm"><b>Solution:</b> Read-only selectors for rendering plus named commands (<code>PR.pickQuick(i)</code>, <code>PR.skipPair()</code>, <code>PR.answerPlacement(better)</code>) that own the mode flows views currently orchestrate. Views render state; they stop mutating it.</p>
+    <p class="text-sm"><b>Benefits:</b> depth — a small command interface hides duel-mode flow; leverage — keyboard handling (app.js) and clicks (views.js) cross the same seam; locality — a mode bug has one address. Testability: flows become callable without a DOM.</p>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-slate-950 rounded-lg p-3"><p class="text-xs text-slate-400 mb-2">Before — two-way coupling</p>
+        <pre class="mermaid text-xs">flowchart LR
+  V[views.js] -- writes state --> PR[PR facade ~60 members]
+  PR -- reads --> V
+  A[app.js] -- synthetic clicks --> V</pre>
+      </div>
+      <div class="bg-slate-950 rounded-lg p-3"><p class="text-xs text-slate-400 mb-2">After — one-way through commands</p>
+        <pre class="mermaid text-xs">flowchart LR
+  V[views render] -- commands --> A[app flows]
+  K[keyboard] -- commands --> A
+  A -- selectors --> V</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Candidate 3 -->
+  <section class="bg-slate-900 rounded-xl p-6 border border-slate-700 space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-xl font-bold">3 · One owner for the store document</h2>
+      <span class="badge-worth text-white text-xs font-bold px-3 py-1 rounded-full">Worth exploring</span>
+    </div>
+    <p class="text-sm"><b>Files:</b> engine.js (validStore, mergeStores) · app.js (loadStore, save, replaceStore, ensureRecs) · sync.js (JSON.stringify diffing) · server/src/sync.ts (parseStoreDoc, StoreDoc, rater counting)</p>
+    <p class="text-sm"><b>Problem:</b> The store’s shape is everybody’s implementation detail. The milestone review already single-sourced the validity predicate; the remaining copies (app.js lifecycle rules, sync.js byte-diff, server battle extraction) each know document internals. Also <code>ensureRecs</code> mutates and saves from read paths — touching the store for a read silently schedules a sync push.</p>
+    <p class="text-sm"><b>Solution:</b> A store module (client-side, engine-adjacent) owning parse / validate / repair / diff; app.js consumes it, sync.js asks it “did anything change?”, the server keeps only its JSON+size validation. Reads stop writing: repairs collect explicitly and save once.</p>
+    <p class="text-sm"><b>Benefits:</b> a store-shape or version bump touches one module instead of four coordinated edits where a miss silently rejects a device’s ladder; sync stops diffing by string; the hidden write-on-read seam disappears.</p>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="bg-slate-950 rounded-lg p-3"><p class="text-xs text-slate-400 mb-2">Before — four owners</p>
+        <pre class="mermaid text-xs">flowchart TD
+  APP[app.js lifecycle] --- ST[store shape]
+  ENG[engine merge] --- ST
+  SYN[sync.js diff] --- ST
+  SRV[server parse] --- ST</pre>
+      </div>
+      <div class="bg-slate-950 rounded-lg p-3"><p class="text-xs text-slate-400 mb-2">After — one deep module</p>
+        <pre class="mermaid text-xs">flowchart TD
+  STORE[store module\nparse · validate · repair · diff]
+  APP[app.js] --> STORE
+  SYN[sync.js] --> STORE
+  SRV[server JSON+size] -- JSON --> STORE</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Candidate 4 -->
+  <section class="bg-slate-900 rounded-xl p-6 border border-slate-700 space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-xl font-bold">4 · Chrome module: one toast, one fetch helper</h2>
+      <span class="badge-worth text-white text-xs font-bold px-3 py-1 rounded-full">Worth exploring</span>
+    </div>
+    <p class="text-sm"><b>Files:</b> app.js:451, auth.js, sync.js (three toast copies — one already drifted on timers before the review fixed it) · auth.js:11, sync.js:22 (two fetch helpers)</p>
+    <p class="text-sm"><b>Problem:</b> Shallow duplicates that fail the deletion test — deleting any copy changes nothing. The timer drift the review caught is exactly the failure mode copies invite.</p>
+    <p class="text-sm"><b>Solution:</b> A tiny chrome module (loaded before auth/sync): <code>toast(msg)</code> and <code>api(path, opts)</code>. Auth and sync keep their DOM/state logic.</p>
+    <p class="text-sm"><b>Benefits:</b> locality for future chrome (offline banner, sync status); one toast timeline. Cheap: an afternoon, no behavior change.</p>
+  </section>
+
+  <!-- Candidate 5 -->
+  <section class="bg-slate-900 rounded-xl p-6 border border-slate-700 space-y-4">
+    <div class="flex items-center justify-between">
+      <h2 class="text-xl font-bold">5 · Serve the Global ranking complete</h2>
+      <span class="badge-spec text-white text-xs font-bold px-3 py-1 rounded-full">Speculative</span>
+    </div>
+    <p class="text-sm"><b>Files:</b> views.js global() · sync.js PRGlobal · server/src/sync.ts globalRanking</p>
+    <p class="text-sm"><b>Problem:</b> The Global tab reaches sideways: <code>PRGlobal.get</code> lives in sync.js (a module about syncing your ladder, not about rankings), and views recompute tiers client-side — a third tier computation site. The deletion test fails PRGlobal: it is a one-method forwarding module.</p>
+    <p class="text-sm"><b>Solution:</b> Have the server compute tiers alongside ratings (it owns computeTiers inputs already), and move the fetch+cache next to the view or into a small ranking client. <i>Speculative because the global payload may grow sorting/filtering anyway (deferred scope), which would reshape this interface.</i></p>
+    <p class="text-sm"><b>Benefits:</b> one tier rule; views render complete data; sync.js keeps one job.</p>
+  </section>
+
+  <!-- Leave alone -->
+  <section class="bg-emerald-950/40 rounded-xl p-6 border border-emerald-800 space-y-2">
+    <h2 class="text-xl font-bold text-emerald-300">Already deep — leave alone</h2>
+    <ul class="text-sm list-disc pl-6 space-y-1">
+      <li><b>engine.js</b> — a pure ~30-function interface powering three hosts (browser, Node tests, Worker verbatim import) with zero adapters; the newly shared <code>validBattle</code>/<code>validStore</code> are exactly the right shape.</li>
+      <li><b>The sync protocol</b> (server/src/sync.ts) — monotonic revision + 409-with-current-state hides optimistic concurrency behind a tiny interface.</li>
+      <li><b>server/scripts/dev-node.mjs</b> — one script faithfully faking D1/bundler/static hosting; it earned its keep the day wrangler dev broke.</li>
+    </ul>
+  </section>
+
+  <!-- Top recommendation -->
+  <section class="bg-amber-950/40 rounded-xl p-6 border border-amber-700 space-y-2">
+    <h2 class="text-xl font-bold text-amber-300">Top recommendation</h2>
+    <p class="text-sm"><b>Candidate 1 — the battle-constructor in engine.js.</b> Smallest scope of the strong candidates, removes a live divergence risk (undo snapshots built in two places), and every other improvement (facade commands, store owner, server replay) builds on that seam. Candidate 2 is the strategic one; do it second, one duel mode at a time.</p>
+  </section>
+
+  <footer class="text-xs text-slate-500 pb-8">
+    Generated by the improve-codebase-architecture skill · friction notes from an independent codebase walk · no interfaces designed here — pick a candidate to refine.
+  </footer>
+</main>
+</body>
+</html>

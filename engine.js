@@ -478,6 +478,145 @@
     };
   }
 
+  // ---------- replay & merge (multi-device sync) ----------
+
+  // One definition of a usable battle, shared by replay admission and sync
+  // dedup admission so the two can never disagree about what counts.
+  function validBattle(b) {
+    return !!b && typeof b.a === "string" && typeof b.b === "string"
+      && b.a !== b.b && (b.winner === b.a || b.winner === b.b);
+  }
+
+  // One definition of a usable v2 store document, shared by the client
+  // loader, the sync merge, and the server's push validation.
+  function validStore(s) {
+    return !!(s && s.version === 2 && s.ladders && typeof s.ladders === "object");
+  }
+
+  // Rebuilds records from a battle log, the same way live duels build them:
+  // every record starts fresh and battles apply in chronological order, so a
+  // replay of the log always reproduces the live ladder exactly. Battles are
+  // the source of truth; records are a cache of them. Invalid battles
+  // (missing participants or winner) are dropped, and the preA/preB undo
+  // snapshots are regenerated from the replay.
+  function replayBattles(rawBattles) {
+    const list = (Array.isArray(rawBattles) ? rawBattles : [])
+      .filter(validBattle)
+      .map((b, i) => ({ b, i }))
+      .sort((x, y) => (x.b.ts || 0) - (y.b.ts || 0) || x.i - y.i)
+      .map((x) => x.b);
+    const recs = {};
+    const rec = (id) => recs[id] || (recs[id] = freshRecord());
+    const out = [];
+    for (const b of list) {
+      const recA = rec(b.a);
+      const recB = rec(b.b);
+      const preA = { r: recA.r, w: recA.w, l: recA.l, hist: recA.hist.slice() };
+      const preB = { r: recB.r, w: recB.w, l: recB.l, hist: recB.hist.slice() };
+      duel(b.a, recA, b.b, recB, b.winner);
+      out.push({
+        a: b.a, b: b.b, winner: b.winner,
+        mode: typeof b.mode === "string" ? b.mode : "quick",
+        ts: typeof b.ts === "number" ? b.ts : 0,
+        preA, preB,
+      });
+    }
+    return { recs, battles: out };
+  }
+
+  function battleKey(b) {
+    return `${b.a}|${b.b}|${b.winner}|${b.ts}|${b.mode}`;
+  }
+
+  // Merges two store documents (see app.js for the shape) without mutating
+  // either. Ladders union by id; within a shared ladder, battles union with
+  // duplicates of the same duel (same pair, winner, timestamp and mode)
+  // collapsed, then records are replayed from the merged log. Unplayed flags
+  // and champion history union; a ladder's name follows the side that holds
+  // more battles. Device-local prefs, `seen`, and the active ladder stay with
+  // the local store when possible. Returns null when remote is unusable.
+  function mergeStores(local, remote) {
+    if (!validStore(local) || !validStore(remote)) return null;
+    const merged = {
+      version: 2,
+      active: local.active,
+      ladders: {},
+      prefs: JSON.parse(JSON.stringify(local.prefs || {})),
+      // Onboarding is done if either side has done it — a fresh browser
+      // pulling an established account must not see the intro gate again.
+      seen: Boolean(local.seen || remote.seen),
+    };
+    for (const [id, rl] of Object.entries(remote.ladders)) {
+      const ll = local.ladders[id];
+      if (!ll) {
+        merged.ladders[id] = mergeLadders(null, rl);
+        continue;
+      }
+      merged.ladders[id] = mergeLadders(ll, rl);
+    }
+    for (const [id, ll] of Object.entries(local.ladders)) {
+      if (!merged.ladders[id]) merged.ladders[id] = mergeLadders(ll, null);
+    }
+    if (!merged.active || !merged.ladders[merged.active]) {
+      merged.active = Object.keys(merged.ladders)[0] || null;
+    }
+    // A fresh device that just pressed start lands on its empty ladder; if
+    // the merge brought in ladders that actually have duels, land there
+    // instead — a returning user expects to see their ladder, not a blank.
+    const activeBattles = (l) => (l && Array.isArray(l.battles) ? l.battles.length : 0);
+    if (activeBattles(merged.ladders[merged.active]) === 0) {
+      let best = null;
+      for (const l of Object.values(merged.ladders)) {
+        if (activeBattles(l) > activeBattles(best)) best = l;
+      }
+      if (best && activeBattles(best) > 0) merged.active = best.id;
+    }
+    return merged;
+  }
+
+  function mergeLadders(local, remote) {
+    const base = (local && local.battles ? local.battles.length : 0)
+      >= (remote && remote.battles ? remote.battles.length : 0) ? local : remote;
+    const other = base === local ? remote : local;
+    const seen = new Set();
+    const battles = [];
+    for (const src of [base && base.battles, other && other.battles]) {
+      for (const b of src || []) {
+        if (!validBattle(b)) continue;
+        const k = battleKey(b);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        battles.push(b);
+      }
+    }
+    battles.sort((x, y) => (x.ts || 0) - (y.ts || 0));
+    const { recs, battles: replayed } = replayBattles(battles);
+
+    const tournaments = [];
+    const tSeen = new Set();
+    for (const src of [base && base.tournaments, other && other.tournaments]) {
+      for (const t of src || []) {
+        const k = String(t && t.when);
+        if (tSeen.has(k)) continue;
+        tSeen.add(k);
+        tournaments.push(t);
+      }
+    }
+    tournaments.sort((x, y) => (x.when || 0) - (y.when || 0));
+
+    const unplayed = { ...((other && other.unplayed) || {}), ...((base && base.unplayed) || {}) };
+
+    return {
+      id: (base && base.id) || (other && other.id),
+      name: (base && base.name) || (other && other.name) || "Ladder",
+      recs,
+      battles: replayed,
+      tournaments,
+      currentTournament: (local && local.currentTournament) || (remote && remote.currentTournament) || null,
+      ...(Object.keys(unplayed).length ? { unplayed } : {}),
+    };
+  }
+
   const engine = {
     START_RATING,
     RATING_FLOOR,
@@ -503,6 +642,10 @@
     headToHead,
     histogram,
     migrateV1,
+    replayBattles,
+    mergeStores,
+    validBattle,
+    validStore,
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = engine;

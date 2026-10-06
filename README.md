@@ -127,29 +127,44 @@ stats, migration — is DOM-free and tested with plain Node:
 node engine.test.js
 ```
 
-## Multi-user server (in progress)
+## Multi-user server
 
 [`server/`](server/) is a Cloudflare Worker that serves this app as static
-assets (the repo root; see `.assetsignore` for what stays private) and will
-host the multi-user API: BetterAuth accounts, per-user ladder sync, and a
-global ranking computed by the same `engine.js`. Local dev needs no
-Cloudflare account — D1 runs in the local simulation:
+assets (the repo root; see `.assetsignore` for what stays private) and hosts
+the multi-user API: BetterAuth accounts, per-user ladder sync, and a global
+ranking computed by the same `engine.js`. Local dev needs no Cloudflare
+account — D1 runs in a local simulation:
 
 ```sh
 cd server
 npm install
-npm run dev            # http://localhost:8790 — app + /api/health
+npm run dev:node      # http://localhost:8791 — app + API, no wrangler needed
 npm run typecheck
+npm run dev           # wrangler dev on :8790 (see caveat below)
 ```
+
+`npm run dev:node` is the self-contained dev loop: it bundles the Worker
+with esbuild, backs the D1 binding with Node's built-in SQLite (migrations
+applied on boot, state in `/tmp/pr-node-d1` — delete to reset), serves the
+repo root, and forwards `/api/*` to the Worker. Prefer it when `wrangler
+dev` misbehaves on your machine — it has been observed failing at startup
+(`spawn EBADF` inside its esbuild/workerd bootstrap) while everything else
+works.
+
+**Accounts** (BetterAuth, email + password): "Sign in" in the header,
+session cookie, sign-out on the header chip. **Ladder sync:** signed in,
+your whole ladder state syncs after every duel (debounced) and merges on
+sign-in — duels are an append-only log replayed through the engine, so two
+devices merge by union, never overwrite. Offline play keeps working; the
+next duel syncs. **Global ranking:** the "Global" tab ranks every signed-in
+player's duels in one shared Elo ladder, computed server-side by the same
+DOM-free `engine.js` and cached briefly.
 
 First deploy: `npx wrangler login`, `npx wrangler d1 create pixel-rumble`
 (paste the id into `server/wrangler.jsonc`), apply migrations remotely
 (`npx wrangler d1 migrations apply pixel-rumble --remote`), set the auth
 secret (`npx wrangler secret put BETTER_AUTH_SECRET` — locally it lives in
 `server/.dev.vars`, which is git-ignored), then `npm run deploy`.
-
-Accounts (BetterAuth, email + password) already work locally and on deploy:
-"Sign in" in the header, session cookie, sign-out on the header chip.
 
 ## Layout
 
@@ -163,6 +178,8 @@ Accounts (BetterAuth, email + password) already work locally and on deploy:
 | `audio.js` | WebAudio synth for arcade feedback |
 | `views.js` | Renderers for Duel, Rankings and Stats |
 | `app.js` | Store, ladders, actions, chrome, keyboard, onboarding |
+| `auth.js` | Account dialog + header chip (BetterAuth REST, zero-dep) |
+| `sync.js` | Ladder sync client + Global-tab data |
 | `fetch-data.js` | Roster pipeline: SteamSpy + Wikidata, keyless, cached |
 | `fetch-covers.js` | Cover pipeline: Steam CDN box art into `covers/` |
 | `data/games-curated.js` | Hand-picked classic roster (fallback + merge source) |

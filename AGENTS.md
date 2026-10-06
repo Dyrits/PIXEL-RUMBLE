@@ -3,6 +3,10 @@
 Zero-dependency static web app. See `README.md` for the feature set, the Elo
 model, and the roster/cover pipelines. Verify engine changes with
 `node engine.test.js`; run the app with `python3 -m http.server` from the root.
+For the API, `cd server && npm run dev:node` (port 8791) is the reliable dev
+loop — `wrangler dev` currently fails at startup on this machine (see
+`documentation/work-in-progress.md` § Dev environment); wrangler still works
+for migrations, dry-run bundling, and deploy.
 
 ## Agent skills
 

@@ -41,7 +41,7 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
-        if (data && data.version === 2 && data.ladders) return data;
+        if (E.validStore(data)) return data;
       }
     } catch (e) { /* fall through to a fresh store */ }
     return freshStore();
@@ -51,6 +51,34 @@
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(store));
     } catch (e) { /* private mode: play without persistence */ }
+    // Sync (when signed in) rides on every persisted change.
+    if (window.PRSync) window.PRSync.onSave();
+  }
+
+  // Replaces the whole store (used by sync after merging a remote store) and
+  // re-enters the app on the merged state: caches drop, volatile duel state
+  // resets, the onboarding gate closes if the merged store has seen the app.
+  function replaceStore(next) {
+    if (!E.validStore(next)) return false;
+    store = next;
+    if (!store.ladders[store.active]) store.active = Object.keys(store.ladders)[0] || null;
+    if (store.active) ensureRecs(store.ladders[store.active]);
+    state.quick.pair = null;
+    state.quick.recentIds = [];
+    state.placement = null;
+    state.lastChampion = null;
+    invalidateCaches();
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(store));
+    } catch (e) { /* private mode: play without persistence */ }
+    const gate = $("#gate");
+    if (gate && store.seen && store.active) {
+      gate.hidden = true;
+      gate.classList.remove("open");
+      gate.textContent = "";
+    }
+    if (ladder()) render();
+    return true;
   }
 
   function ladder() {
@@ -494,12 +522,20 @@
     else location.hash = hash;
   }
 
+  function viewFromHash() {
+    if (location.hash === "#/rankings") return "rankings";
+    if (location.hash === "#/stats") return "stats";
+    if (location.hash === "#/global") return "global";
+    return "duel";
+  }
+
   function render() {
-    if (!ladder()) return;
+    if (state.view !== "global" && !ladder()) return;
     const stage = $("#stage");
     stage.textContent = "";
     if (state.view === "rankings") window.PRViews.rankings(stage);
     else if (state.view === "stats") window.PRViews.stats(stage);
+    else if (state.view === "global") window.PRViews.global(stage);
     else window.PRViews.duel(stage);
     updateChrome();
   }
@@ -863,6 +899,8 @@
     set lastChampion(v) { state.lastChampion = v; },
     // data
     ladder,
+    getStore: () => store,
+    replaceStore,
     recordOf,
     battles,
     lastBattle,
@@ -979,7 +1017,7 @@
     });
 
     window.addEventListener("hashchange", () => {
-      const next = location.hash === "#/rankings" ? "rankings" : location.hash === "#/stats" ? "stats" : "duel";
+      const next = viewFromHash();
       if (next !== state.view) {
         state.view = next;
         render();
@@ -988,7 +1026,7 @@
 
     if (store.active && store.ladders[store.active]) {
       ensureRecs(ladder());
-      state.view = location.hash === "#/rankings" ? "rankings" : location.hash === "#/stats" ? "stats" : "duel";
+      state.view = viewFromHash();
       render();
     }
     if (!store.seen) showGate();

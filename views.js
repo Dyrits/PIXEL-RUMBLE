@@ -858,42 +858,12 @@
     for (const id of rows) {
       const g = pr.gameById(id);
       const rec = pr.recordOf(id);
-      const played = rec.w + rec.l;
-      const rank = rankMap.get(id);
-
-      const row = el("button", "row");
-      row.type = "button";
-      row.setAttribute("aria-label", `${g.title} details`);
-
-      const rankCell = el("span", "cell rank", String(rank));
-      if (rank === 1) rankCell.classList.add("gold");
-      else if (rank === 2) rankCell.classList.add("silver");
-      else if (rank === 3) rankCell.classList.add("bronze");
-
-      const tierCell = el("span", "cell");
-      const tier = tiers[id];
-      if (tier) {
-        const chip = el("span", "tier " + tier, tier);
-        tierCell.appendChild(chip);
-      }
-
-      const gameCell = el("span", "cell game");
-      const titleRow = el("span", "row-title");
-      titleRow.textContent = g.title;
-      const streak = pr.streakOf(id);
-      if (streak && streak.n >= 2) {
-        const s = el("span", "streak " + streak.type, `${streak.type}${streak.n}`);
-        titleRow.appendChild(s);
-      }
-      gameCell.append(titleRow, el("span", "row-sub", `${g.genres[0]}, ${pr.metaLine(g)}`));
-
-      const pts = el("span", "cell pts", String(rec.r));
-      const recTxt = played ? `${rec.w}\u2013${rec.l}` : "\u2013";
-      const pct = played ? Math.round((rec.w / played) * 100) + "%" : "\u2013";
-
-      row.append(rankCell, thumbHolder(g), tierCell, gameCell, pts, el("span", "cell rec", recTxt), el("span", "cell pct", pct));
-      row.addEventListener("click", () => openGameModal(id));
-      table.appendChild(row);
+      table.appendChild(rankedRow(g, {
+        rank: rankMap.get(id),
+        tier: tiers[id],
+        streak: pr.streakOf(id),
+        r: rec.r, w: rec.w, l: rec.l,
+      }));
     }
 
     if (!rows.length) {
@@ -904,6 +874,45 @@
   function winRate(rec) {
     const n = rec.w + rec.l;
     return n ? rec.w / n : 0;
+  }
+
+  // One renderer for a ranked table row, shared by the personal Rankings
+  // and the Global tab so the two tables cannot drift apart. data:
+  // { rank, tier, streak?, r, w, l }.
+  function rankedRow(g, data) {
+    const pr = P();
+    const row = el("button", "row");
+    row.type = "button";
+    row.setAttribute("aria-label", `${g.title} details`);
+    row.addEventListener("click", () => openGameModal(g.id));
+
+    const rankCell = el("span", "cell rank", String(data.rank));
+    if (data.rank === 1) rankCell.classList.add("gold");
+    else if (data.rank === 2) rankCell.classList.add("silver");
+    else if (data.rank === 3) rankCell.classList.add("bronze");
+
+    const tierCell = el("span", "cell");
+    if (data.tier) tierCell.appendChild(el("span", "tier " + data.tier, data.tier));
+
+    const gameCell = el("span", "cell game");
+    const titleRow = el("span", "row-title");
+    titleRow.textContent = g.title;
+    if (data.streak && data.streak.n >= 2) {
+      titleRow.appendChild(el("span", "streak " + data.streak.type, `${data.streak.type}${data.streak.n}`));
+    }
+    gameCell.append(titleRow, el("span", "row-sub", `${g.genres[0]}, ${pr.metaLine(g)}`));
+
+    const played = data.w + data.l;
+    row.append(
+      rankCell,
+      thumbHolder(g),
+      tierCell,
+      gameCell,
+      el("span", "cell pts", String(data.r)),
+      el("span", "cell rec", played ? `${data.w}\u2013${data.l}` : "\u2013"),
+      el("span", "cell pct", played ? Math.round((data.w / played) * 100) + "%" : "\u2013")
+    );
+    return row;
   }
 
   // ---------- game modal ----------
@@ -1043,6 +1052,82 @@
     const lastX = x(hist.length - 1);
     const lastY = y(hist[hist.length - 1]);
     ctx.fillRect(lastX - 4, lastY - 4, 8, 8);
+  }
+
+  // ---------- global tab ----------
+
+  // The consensus ranking: every signed-in player's duels replayed into one
+  // Elo ladder by the server (same engine, same math). Read-only — ratings
+  // move only through your own duels.
+  function global(stage) {
+    const pr = P();
+    const head = el("div", "rank-head");
+    head.appendChild(el("h2", null, "Global ranking"));
+    const sub = el("p", "panel-sub global-sub");
+    head.appendChild(sub);
+    stage.appendChild(head);
+
+    const mount = el("div");
+    stage.appendChild(mount);
+
+    const renderData = (data) => {
+      mount.textContent = "";
+      sub.textContent = `${data.battles} duels from ${data.raters} player${data.raters === 1 ? "" : "s"} · every ladder replays into one Elo pool`;
+
+      if (!data.ranked.length) {
+        const empty = el("div", "empty-note");
+        empty.appendChild(el("span", null, "Nobody has synced any duels yet. Sign in and rumble — the world ranking starts with you."));
+        mount.appendChild(empty);
+        return;
+      }
+
+      const tiers = E().computeTiers(data.ranked.map((row) => row.id));
+      const table = el("div", "table");
+      const header = el("div", "row head-row");
+      header.append(
+        el("span", "cell rank", "Rank"),
+        el("span", "cell artholder", ""),
+        el("span", "cell", "Tier"),
+        el("span", "cell game", "Game"),
+        el("span", "cell pts", "Rating"),
+        el("span", "cell rec", "Record"),
+        el("span", "cell pct", "Win rate")
+      );
+      table.appendChild(header);
+
+      data.ranked.forEach((row, i) => {
+        const g = pr.gameById(row.id);
+        if (!g) return; // roster changed: battles for removed games drop out
+        table.appendChild(rankedRow(g, {
+          rank: i + 1,
+          tier: tiers[row.id],
+          r: row.r, w: row.w, l: row.l,
+        }));
+      });
+      mount.appendChild(table);
+    };
+
+    const renderError = () => {
+      mount.textContent = "";
+      const empty = el("div", "empty-note");
+      empty.appendChild(el("span", null, "Couldn't reach the ranking server."));
+      const retry = el("button", "btn", "Try again");
+      retry.type = "button";
+      retry.addEventListener("click", () => {
+        mount.textContent = "";
+        mount.appendChild(el("p", "no-match", "Reading the collective wisdom\u2026"));
+        load(true);
+      });
+      empty.appendChild(retry);
+      mount.appendChild(empty);
+    };
+
+    function load(force) {
+      window.PRGlobal.get(force).then(renderData).catch(renderError);
+    }
+
+    mount.appendChild(el("p", "no-match", "Reading the collective wisdom\u2026"));
+    load();
   }
 
   // ---------- stats tab ----------
@@ -1253,6 +1338,7 @@
     duel,
     rankings,
     stats,
+    global,
     openGameModal,
     quickPick,
     quickSkip,
