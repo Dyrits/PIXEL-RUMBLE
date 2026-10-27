@@ -1,5 +1,24 @@
 # Pixel Rumble
 
+A Flickchart for video games: pick the better game in head-to-head duels and an Elo ladder assembles your personal all-time ranking.
+
+## Table of contents
+
+- [About The Project](#about-the-project)
+- [Getting Started](#getting-started)
+- [What V2 adds over the prototype](#what-v2-adds-over-the-prototype)
+- [The data pipeline](#the-data-pipeline)
+- [Cover art](#cover-art)
+- [How the ladder works](#how-the-ladder-works)
+- [Roster](#roster)
+- [Tests](#tests)
+- [Multi-user server](#multi-user-server)
+- [Layout](#layout)
+- [License](#license)
+- [Contact](#contact)
+
+## About The Project
+
 A [Flickchart](https://www.flickchart.com/) for video games. Two games walk in,
 you pick the one you think is better, and an Elo ladder quietly assembles your
 personal all-time ranking from those snap judgments.
@@ -7,7 +26,9 @@ personal all-time ranking from those snap judgments.
 **This is V2.** The original prototype lives in [`v1/`](v1/) and still runs
 on its own (`v1/index.html`).
 
-## Run it
+## Getting Started
+
+### Run it
 
 No build step. Open `index.html` directly, or serve it:
 
@@ -185,3 +206,11 @@ secret (`npx wrangler secret put BETTER_AUTH_SECRET` — locally it lives in
 | `data/games-curated.js` | Hand-picked classic roster (fallback + merge source) |
 | `engine.test.js` | Engine tests |
 | `v1/` | The original prototype, preserved |
+
+## License
+
+No license file is present in this repository.
+
+## Contact
+
+Dyrits - https://github.com/Dyrits
